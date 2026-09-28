@@ -1,28 +1,32 @@
 package net.typho.misc_util
 
-import java.util.ServiceLoader
-
 object KtServiceLoader {
     const val PREFIX = "META-INF/services/"
+    
+    interface Provider<S : Any> {
+        val type: Class<out S>
+
+        fun get(): S
+    }
 
     @JvmStatic
-    fun <S : Any> List<ServiceLoader.Provider<S>>.loadAll() = map { it.get() }
+    fun <S : Any> List<Provider<S>>.loadAll() = map { it.get() }
 
     @JvmOverloads
     @JvmStatic
-    fun <S : Any> load(service: Class<S>, loader: ClassLoader = Thread.currentThread().contextClassLoader): List<ServiceLoader.Provider<S>> {
+    fun <S : Any> load(service: Class<S>, loader: ClassLoader = Thread.currentThread().contextClassLoader): List<Provider<S>> {
         val configs = loader.getResources(PREFIX + service.name).toList()
         val impls = configs.flatMapTo(mutableSetOf()) {
             val connection = it.openConnection()
             connection.useCaches = false
-            connection.getInputStream().reader().readAllLines().filter { it.isNotBlank() }
+            connection.getInputStream().reader().readLines().filter { it.isNotBlank() }
         }
         return load(service, impls, loader)
     }
 
     @JvmOverloads
     @JvmStatic
-    fun <S : Any> load(service: Class<S>, impls: Collection<String>, loader: ClassLoader = Thread.currentThread().contextClassLoader): List<ServiceLoader.Provider<S>> {
+    fun <S : Any> load(service: Class<S>, impls: Collection<String>, loader: ClassLoader = Thread.currentThread().contextClassLoader): List<Provider<S>> {
         return impls.map {
             val cls = Class.forName(it, false, loader)
 
@@ -34,8 +38,9 @@ object KtServiceLoader {
             cls as Class<out S>
 
             cls.kotlin.objectInstance?.let { obj ->
-                return@map object : ServiceLoader.Provider<S> {
-                    override fun type() = cls
+                return@map object : Provider<S> {
+                    override val type: Class<out S>
+                        get() = cls
 
                     override fun get() = obj
                 }
@@ -44,8 +49,9 @@ object KtServiceLoader {
             val ctor = cls.getConstructor()
             ctor.isAccessible = true
 
-            return@map object : ServiceLoader.Provider<S> {
-                override fun type() = cls
+            return@map object : Provider<S> {
+                override val type: Class<out S>
+                    get() = cls
 
                 override fun get() = ctor.newInstance()
             }
