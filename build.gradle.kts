@@ -4,14 +4,14 @@ plugins {
 }
 
 group = "net.typho"
-version = "1.0.1"
+version = "1.0.2"
 
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    kotlin("reflect")
+    implementation(kotlin("reflect"))
 }
 
 kotlin {
