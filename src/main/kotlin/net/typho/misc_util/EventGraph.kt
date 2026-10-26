@@ -50,9 +50,11 @@ open class EventGraph<K : Any, T : Any> {
             events
         }
 
+        @JvmName("beforeId")
         @JvmOverloads
         fun before(id: K, throwIfMissing: Boolean = true) = before({ it.id == id }, id, throwIfMissing)
 
+        @JvmName("beforeEvent")
         @JvmOverloads
         fun before(event: T, throwIfMissing: Boolean = true) = before({ it.event === event }, event, throwIfMissing)
 
@@ -73,9 +75,11 @@ open class EventGraph<K : Any, T : Any> {
             events
         }
 
+        @JvmName("afterId")
         @JvmOverloads
         fun after(id: K, throwIfMissing: Boolean = true) = after({ it.id == id }, id, throwIfMissing)
 
+        @JvmName("afterEvent")
         @JvmOverloads
         fun after(event: T, throwIfMissing: Boolean = true) = after({ it.event === event }, event, throwIfMissing)
     }
