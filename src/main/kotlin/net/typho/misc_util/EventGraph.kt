@@ -2,18 +2,12 @@ package net.typho.misc_util
 
 import java.util.function.BiConsumer
 import java.util.function.Consumer
+import java.util.function.Predicate
 
 open class EventGraph<K : Any, T : Any> {
-    enum class MissingDependencyBehavior {
-        SKIP,
-        THROW
-    }
-
-    class EventDependency<K : Any>(
+    inner class EventDependency(
         @JvmField
-        val id: K,
-        @JvmField
-        val behavior: MissingDependencyBehavior
+        val events: (all: List<Event>) -> List<Event>
     )
 
     inner class Event(
@@ -22,9 +16,9 @@ open class EventGraph<K : Any, T : Any> {
         @JvmField
         val event: T,
         @JvmField
-        val runThisBefore: MutableList<EventDependency<K>> = mutableListOf(),
+        val runThisBefore: MutableList<EventDependency> = mutableListOf(),
         @JvmField
-        val runThisAfter: MutableList<EventDependency<K>> = mutableListOf()
+        val runThisAfter: MutableList<EventDependency> = mutableListOf()
     ) {
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
@@ -39,25 +33,51 @@ open class EventGraph<K : Any, T : Any> {
             return id.hashCode()
         }
 
-        @JvmOverloads
-        fun before(id: K, behavior: MissingDependencyBehavior = MissingDependencyBehavior.THROW): EventGraph<K, T>.Event {
-            runThisBefore.add(EventDependency(id, behavior))
+        fun before(events: (all: List<Event>) -> List<Event>): EventGraph<K, T>.Event {
+            runThisBefore.add(EventDependency(events))
             resolved = false
             return this
         }
 
         @JvmOverloads
-        fun before(event: SelfAware<K>, behavior: MissingDependencyBehavior = MissingDependencyBehavior.THROW) = before(event.id, behavior)
+        fun before(predicate: Predicate<Event>, debug: Any, throwIfMissing: Boolean = true) = before {
+            val events = it.filter { predicate.test(it) }
+
+            if (throwIfMissing && events.isEmpty()) {
+                throw NullPointerException("Event graph does not contain dependency $debug requested by $id")
+            }
+
+            events
+        }
 
         @JvmOverloads
-        fun after(id: K, behavior: MissingDependencyBehavior = MissingDependencyBehavior.THROW): EventGraph<K, T>.Event {
-            runThisAfter.add(EventDependency(id, behavior))
+        fun before(id: K, throwIfMissing: Boolean = true) = before({ it.id == id }, id, throwIfMissing)
+
+        @JvmOverloads
+        fun before(event: T, throwIfMissing: Boolean = true) = before({ it.event === event }, event, throwIfMissing)
+
+        fun after(events: (all: List<Event>) -> List<Event>): EventGraph<K, T>.Event {
+            runThisAfter.add(EventDependency(events))
             resolved = false
             return this
         }
 
         @JvmOverloads
-        fun after(event: SelfAware<K>, behavior: MissingDependencyBehavior = MissingDependencyBehavior.THROW) = after(event.id, behavior)
+        fun after(predicate: Predicate<Event>, debug: Any, throwIfMissing: Boolean = true) = after {
+            val events = it.filter { predicate.test(it) }
+
+            if (throwIfMissing && events.isEmpty()) {
+                throw NullPointerException("Event graph does not contain dependency $debug requested by $id")
+            }
+
+            events
+        }
+
+        @JvmOverloads
+        fun after(id: K, throwIfMissing: Boolean = true) = after({ it.id == id }, id, throwIfMissing)
+
+        @JvmOverloads
+        fun after(event: T, throwIfMissing: Boolean = true) = after({ it.event === event }, event, throwIfMissing)
     }
 
     var events = listOf<Event>()
@@ -117,24 +137,22 @@ open class EventGraph<K : Any, T : Any> {
 
             for (event in events) {
                 for (dependency in event.runThisBefore) {
-                    val target = lookup[dependency.id] ?: when (dependency.behavior) {
-                        MissingDependencyBehavior.SKIP -> continue
-                        MissingDependencyBehavior.THROW -> throw NullPointerException("Event graph does not contain dependency ${dependency.id} requested by ${event.id}")
-                    }
+                    val targets = dependency.events(events)
 
-                    if (edges[event]!!.add(target)) {
-                        incoming[target] = incoming[target]!! + 1
+                    for (target in targets) {
+                        if (edges[event]!!.add(target)) {
+                            incoming[target] = incoming[target]!! + 1
+                        }
                     }
                 }
 
                 for (dependency in event.runThisAfter) {
-                    val source = lookup[dependency.id] ?: when (dependency.behavior) {
-                        MissingDependencyBehavior.SKIP -> continue
-                        MissingDependencyBehavior.THROW -> throw NullPointerException("Event graph does not contain dependency ${dependency.id} requested by ${event.id}")
-                    }
+                    val targets = dependency.events(events)
 
-                    if (edges[source]!!.add(event)) {
-                        incoming[event] = incoming[event]!! + 1
+                    for (target in targets) {
+                        if (edges[target]!!.add(event)) {
+                            incoming[event] = incoming[event]!! + 1
+                        }
                     }
                 }
             }
