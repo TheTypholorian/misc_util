@@ -47,6 +47,7 @@ open class EventGraph<ID : Any, Event : Any> @JvmOverloads constructor(
             return this
         }
 
+        @JvmName("runBeforeFilter")
         @JvmOverloads
         fun runBefore(predicate: (event: RegisteredEvent) -> Boolean, throwIfMissing: Boolean = true) = runBefore {
             val events = it.filter { predicate(it) }
@@ -72,6 +73,7 @@ open class EventGraph<ID : Any, Event : Any> @JvmOverloads constructor(
             return this
         }
 
+        @JvmName("runAfterFilter")
         @JvmOverloads
         fun runAfter(predicate: (event: RegisteredEvent) -> Boolean, throwIfMissing: Boolean = true) = runAfter {
             val events = it.filter { predicate(it) }
