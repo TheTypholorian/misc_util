@@ -1,28 +1,36 @@
 package net.typho.misc_util
 
+import java.util.PriorityQueue
 import java.util.function.BiConsumer
 import java.util.function.Consumer
-import java.util.function.Predicate
 
-open class EventGraph<K : Any, T : Any> {
+open class EventGraph<ID : Any, Event : Any> @JvmOverloads constructor(
+    @JvmField
+    val defaultOrder: Comparator<RegisteredEvent>? = null
+) {
     inner class EventDependency(
         @JvmField
-        val events: (all: List<Event>) -> List<Event>
+        val events: (all: List<RegisteredEvent>) -> List<RegisteredEvent>
     )
 
-    inner class Event(
+    inner class RegisteredEvent(
         @JvmField
-        val id: K,
+        val event: Event,
         @JvmField
-        val event: T,
-        @JvmField
-        val runThisBefore: MutableList<EventDependency> = mutableListOf(),
-        @JvmField
-        val runThisAfter: MutableList<EventDependency> = mutableListOf()
+        val id: ID
     ) {
+        @JvmField
+        val runBefore = mutableListOf<EventDependency>()
+        @JvmField
+        val runAfter = mutableListOf<EventDependency>()
+
+        operator fun component1() = event
+
+        operator fun component2() = id
+
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
-            if (other !is EventGraph<*, *>.Event) return false
+            if (other !is EventGraph<*, *>.RegisteredEvent) return false
 
             if (id != other.id) return false
 
@@ -33,114 +41,107 @@ open class EventGraph<K : Any, T : Any> {
             return id.hashCode()
         }
 
-        fun before(events: (all: List<Event>) -> List<Event>): EventGraph<K, T>.Event {
-            runThisBefore.add(EventDependency(events))
+        fun runBefore(events: (all: List<RegisteredEvent>) -> List<RegisteredEvent>): EventGraph<ID, Event>.RegisteredEvent {
+            runBefore.add(EventDependency(events))
             resolved = false
             return this
         }
 
         @JvmOverloads
-        fun before(predicate: Predicate<Event>, debug: Any, throwIfMissing: Boolean = true) = before {
-            val events = it.filter { predicate.test(it) }
+        fun runBefore(predicate: (event: RegisteredEvent) -> Boolean, throwIfMissing: Boolean = true) = runBefore {
+            val events = it.filter { predicate(it) }
 
             if (throwIfMissing && events.isEmpty()) {
-                throw NullPointerException("Event graph does not contain dependency $debug requested by $id")
+                throw NullPointerException("Event graph does not contain dependency requested by $id")
             }
 
             events
         }
 
-        @JvmName("beforeId")
+        @JvmName("runBeforeId")
         @JvmOverloads
-        fun before(id: K, throwIfMissing: Boolean = true) = before({ it.id == id }, id, throwIfMissing)
+        fun runBefore(id: ID, throwIfMissing: Boolean = true) = runBefore({ it.id == id }, throwIfMissing)
 
-        @JvmName("beforeEvent")
+        @JvmName("runBeforeEvent")
         @JvmOverloads
-        fun before(event: T, throwIfMissing: Boolean = true) = before({ it.event === event }, event, throwIfMissing)
+        fun runBefore(event: Event, throwIfMissing: Boolean = true) = runBefore({ it.event === event }, throwIfMissing)
 
-        fun after(events: (all: List<Event>) -> List<Event>): EventGraph<K, T>.Event {
-            runThisAfter.add(EventDependency(events))
+        fun runAfter(events: (all: List<RegisteredEvent>) -> List<RegisteredEvent>): EventGraph<ID, Event>.RegisteredEvent {
+            runAfter.add(EventDependency(events))
             resolved = false
             return this
         }
 
         @JvmOverloads
-        fun after(predicate: Predicate<Event>, debug: Any, throwIfMissing: Boolean = true) = after {
-            val events = it.filter { predicate.test(it) }
+        fun runAfter(predicate: (event: RegisteredEvent) -> Boolean, throwIfMissing: Boolean = true) = runAfter {
+            val events = it.filter { predicate(it) }
 
             if (throwIfMissing && events.isEmpty()) {
-                throw NullPointerException("Event graph does not contain dependency $debug requested by $id")
+                throw NullPointerException("Event graph does not contain dependency requested by $id")
             }
 
             events
         }
 
-        @JvmName("afterId")
+        @JvmName("runAfterId")
         @JvmOverloads
-        fun after(id: K, throwIfMissing: Boolean = true) = after({ it.id == id }, id, throwIfMissing)
+        fun runAfter(id: ID, throwIfMissing: Boolean = true) = runAfter({ it.id == id }, throwIfMissing)
 
-        @JvmName("afterEvent")
+        @JvmName("runAfterEvent")
         @JvmOverloads
-        fun after(event: T, throwIfMissing: Boolean = true) = after({ it.event === event }, event, throwIfMissing)
+        fun runAfter(event: Event, throwIfMissing: Boolean = true) = runAfter({ it.event === event }, throwIfMissing)
     }
 
-    var events = listOf<Event>()
+    var events = listOf<RegisteredEvent>()
         protected set
     var resolved = true
         protected set
 
-    constructor()
-
-    constructor(vararg entries: SelfAware<K>) {
+    @JvmOverloads
+    constructor(defaultOrder: Comparator<RegisteredEvent>? = null, vararg entries: SelfAware<ID>) : this(defaultOrder) {
         entries.forEach { register(it) }
     }
 
-    constructor(vararg entries: Pair<K, T>) {
+    @JvmOverloads
+    constructor(defaultOrder: Comparator<RegisteredEvent>? = null, vararg entries: Pair<ID, Event>) : this(defaultOrder) {
         entries.forEach { (id, event) -> register(id, event) }
     }
 
-    @Synchronized
+    @JvmOverloads
+    constructor(defaultOrder: Comparator<RegisteredEvent>? = null, entries: Map<ID, Event>) : this(defaultOrder) {
+        entries.forEach { (id, event) -> register(id, event) }
+    }
+
+    operator fun get(id: ID) = events.firstOrNull { it.id == id }
+
     fun register(
-        id: K,
-        event: T,
-    ): Event {
+        id: ID,
+        event: Event,
+    ): RegisteredEvent {
         if (events.any { it.id == id }) {
             throw IllegalArgumentException("Registered duplicate event '$id'")
         }
 
-        val event = Event(id, event)
+        val event = RegisteredEvent(event, id)
         events += event
         resolved = false
         return event
     }
 
     @Suppress("UNCHECKED_CAST")
-    @Synchronized
-    fun register(event: SelfAware<K>): Event {
-        return register(event.id, event as? T ?: throw IllegalArgumentException()).also { event.postRegister(it) }
-    }
+    fun register(event: SelfAware<ID>) = register(event.id, event as? Event ?: throw IllegalArgumentException()).also { event.postRegister(it) }
 
-    @Suppress("UNCHECKED_CAST")
-    @Synchronized
-    fun register(vararg events: SelfAware<K>) = events.map { register(it) }
+    fun execute(out: Consumer<Event>) = resolve().forEach { out.accept(it.event) }
 
-    fun execute(out: Consumer<T>) {
-        resolve().forEach { out.accept(it.event) }
-    }
+    fun execute(out: BiConsumer<ID, Event>) = resolve().forEach { out.accept(it.id, it.event) }
 
-    fun execute(out: BiConsumer<K, T>) {
-        resolve().forEach { out.accept(it.id, it.event) }
-    }
-
-    @Synchronized
-    fun resolve(): List<Event> {
+    fun resolve(): List<RegisteredEvent> {
         if (!resolved) {
-            val lookup = events.associateBy { it.id }
-            val edges = events.associateWith { mutableSetOf<Event>() }
+            val edges = events.associateWith { mutableSetOf<RegisteredEvent>() }
             val incoming = events.associateWith { 0 }.toMutableMap()
 
             for (event in events) {
-                for (dependency in event.runThisBefore) {
+                for (dependency in event.runBefore) {
                     val targets = dependency.events(events)
 
                     for (target in targets) {
@@ -150,7 +151,7 @@ open class EventGraph<K : Any, T : Any> {
                     }
                 }
 
-                for (dependency in event.runThisAfter) {
+                for (dependency in event.runAfter) {
                     val targets = dependency.events(events)
 
                     for (target in targets) {
@@ -161,24 +162,43 @@ open class EventGraph<K : Any, T : Any> {
                 }
             }
 
-            val queue = ArrayDeque(events.filter { incoming[it] == 0 })
-            val result = mutableListOf<Event>()
+            val result = mutableListOf<RegisteredEvent>()
 
-            while (queue.isNotEmpty()) {
-                val event = queue.removeFirst()
-                result.add(event)
+            if (defaultOrder == null) {
+                val queue = ArrayDeque(events.filter { incoming[it] == 0 })
 
-                for (next in edges[event]!!) {
-                    incoming[next] = incoming[next]!! - 1
+                while (queue.isNotEmpty()) {
+                    val event = queue.removeFirst()
+                    result.add(event)
 
-                    if (incoming[next] == 0) {
-                        queue.addLast(next)
+                    for (next in edges[event]!!) {
+                        incoming[next] = incoming[next]!! - 1
+
+                        if (incoming[next] == 0) {
+                            queue.addLast(next)
+                        }
+                    }
+                }
+            } else {
+                val queue = PriorityQueue(defaultOrder)
+                queue.addAll(events.filter { incoming[it] == 0 })
+
+                while (queue.isNotEmpty()) {
+                    val event = queue.remove()
+                    result.add(event)
+
+                    for (next in edges[event]!!) {
+                        incoming[next] = incoming[next]!! - 1
+
+                        if (incoming[next] == 0) {
+                            queue.add(next)
+                        }
                     }
                 }
             }
 
             if (result.size != events.size) {
-                throw IllegalStateException("Event graph contains a cycle")
+                throw IllegalStateException("Event graph contains a circular dependency")
             }
 
             events = result
@@ -189,19 +209,16 @@ open class EventGraph<K : Any, T : Any> {
         return events
     }
 
-    @Synchronized
-    override fun toString(): String {
-        return if (events.isEmpty()) {
-            "Empty event graph"
-        } else {
-            events.joinToString(separator = "\n", prefix = if (resolved) "Resolved event graph:\n" else "Unresolved event graph:\n", transform = { "${it.id}[${it.event}]" })
-        }
+    override fun toString() = if (events.isEmpty()) {
+        "Empty event graph"
+    } else {
+        events.joinToString(separator = "\n", prefix = if (resolved) "Resolved event graph:\n" else "Unresolved event graph:\n", transform = { "${it.id}[${it.event}]" })
     }
 
     interface SelfAware<K : Any> {
         val id: K
 
-        fun postRegister(event: EventGraph<K, *>.Event) {
+        fun postRegister(event: EventGraph<K, *>.RegisteredEvent) {
         }
     }
 }
